@@ -1,2 +1,2 @@
 # pong-rev-68k
-will upload rest of it later
+This is an old project that I started ages ago to learn 68K assembly 
