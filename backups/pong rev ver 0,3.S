@@ -1,0 +1,325 @@
+;----------------------------------------------------------
+;		pong revolution ver0.3(22:29 17/06/2020)
+;		BY Extra Joe
+;----------------------------------------------------------
+		INCLUDE	SYSTEM.S		;INCLUDES LOTS OF SYSTEM CODE TO MAKE ALL THIS POSSIBLE (hopefully replase later) By Jon Burton (GameHut)
+
+;----------------------------------------------------------
+;		VRAM MEMORY MAP IN HEXADECIMAL
+;----------------------------------------------------------
+;		$0000-$0020			BLANK CHARACTER
+;		$0020-$8000			CHARACTERS FOR PLAYFIELDS AND SPRITES
+;		$C000-$D000			CHARACTER MAP FOR PLAYFIELD 1 (4096 BYTES)
+;		$E000-$F000			CHARACTER MAP FOR PLAYFIELD 2 (4096 BYTES)
+;		$F800				SPRITE TABLE (960 BYTES)
+
+;----------------------------------------------------------
+;		USER VARIABLES
+;----------------------------------------------------------
+		RSSET	USERRAM
+PLAYX:		RS.L	0
+PLAY1X:		RS.W	1			;X POSITION OF PLAYFIELD 1
+PLAY2X:		RS.W	1			;X POSITION OF PLAYFIELD 2
+PLAYY:		RS.L	0
+PLAY1Y:		RS.W	1			;Y POSITION OF PLAYFIELD 1
+PLAY2Y:		RS.W	1			;Y POSITION OF PLAYFIELD 2
+player1X:		RS.W	1			;player1'S X POSITION
+player1Y:		RS.W	1			;player1'S Y POSITION
+BALLX:		RS.W	1			;BALL'S X POSITION
+BALLY:		RS.W	1			;BALL'S Y POSITION
+BALLD:		RS.W	1			;BALL'S DIRECTION
+player2X:	RS.W	1			;player2'S X POSITION
+player2Y:	RS.W	1			;player2'S Y POSITION
+TEMPSCREEN:	RS.B	4096			;RAM TO BUILD TEMPORARY SCREEN MAP
+ENDVARS:	RS.B	0
+
+;----------------------------------------------------------
+;		INITIALISE USER STUFF
+;		- THIS IS WHERE YOU SET UP STUFF BEFORE YOU BEGIN
+;----------------------------------------------------------
+USERINIT:	MOVE.W	#0,PLAY1X		;SET START PLAYFIELD 1 X POSITION TO ZERO
+;		MOVE.W	#0,PLAY1Y		;SET START PLAYFIELD 1 Y POSITION TO ZERO
+
+		DMADUMP	MAPGFX,1*32,$20		;DUMP 4 CHARACTERS (SIZE 32 BYTES EACH) TO VRAM LOCATION $20 (MAP GRAPHICS)
+		DMADUMP	SPRITEGFX,3*32,$1000	;DUMP 8 CHARACTERS (SIZE 32 BYTES EACH) TO VRAM LOCATION $1000 (SPRITE GRAPHICS)
+		DMADUMP	BALLGFX,1*32,$1000+$100
+;----------------------------------------------------------
+;		Backgound (Jon Burton)
+;----------------------------------------------------------
+		LEA.L	TEMPSCREEN,A0		;POINT A0 TO TEMPORARY BUFFER IN RAM TO BUILD MAP BEFORE WE COPY TO VRAM
+		MOVE.W	#8-1,D3			;WE'LL MAKE 8 COPIES OF THIS PATTERN
+
+@L4:		LEA.L	CHARGFX,A1		;POINT A1 TO CHARGFX, WHICH IS THE 8 CHARACTER X 4 CHARACTER PATTERN WE'LL COPY MULITPLE TIMES
+		MOVE.W	#4-1,D1			;4 ROWS
+@L3:		MOVE.W	#8-1,D0			;COPY EACH ROW REPEATED ACROSS THE SCREEN 8 TIMES HORIZONTALLY
+@L2:		MOVE.W	#4-1,D2			;4 LONG-WORDS = 8 CHARACTERS WIDE
+@L1:		MOVE.L	(A1)+,(A0)+		;COPY FROM CHARGFX TO THE TEMPSCREEN. THE + MEANS INCREMENT THE POINTERS
+		DBRA	D2,@L1			;LOOP BACK TO @L1;
+		SUB.L	#16,A1			;POINT BACK TO THE START OF THE CURRENT CHARGFX ROW
+		DBRA	D0,@L2			;LOOP BACK TO @L2
+		ADD.L	#16,A1			;MOVE ONTO THE NEXT CHARGFX ROW
+		DBRA	D1,@L3			;LOOP BACK TO @L3
+		DBRA	D3,@L4			;LOOP BACK TO @L4
+
+		DMADUMP	TEMPSCREEN,4096,$C000	;COPY TEMPSCREEN WHICH IS 4096 BYTES IN SIZE TO VRAM ADDRESS $C000
+;----------------------------------------------------------
+;		Palettes
+;----------------------------------------------------------
+		LEA.L	PALETTE1,A0		;DOWNLOAD A PALETTE FOR THE MAP TO USE
+		BSR	SETPAL1			;OVERRIGHT FIRST PALETTE
+
+		LEA.L	PALETTE2,A0		;DOWNLOAD A PALETTE FOR THE SPRITES TO USE
+		BSR	SETPAL2			;OVERRIGHT SECOND PALETTE	
+
+		JSR	DUMPCOLS		;COPY ALL PALETTES TO CRAM (COLOUR RAM)
+
+		MOVE.W	#$80+160-130,player1X	;player1'S X START POSITION
+		MOVE.W	#$80+112-13,player1Y	;player1'S Y START POSITION
+		MOVE.W	#$80+160+130,player2X	;player1'S X START POSITION
+		MOVE.W	#$80+112-13,player2Y	;player1'S Y START POSITION
+		MOVE.W	#$80+80+80,BALLX	;player1'S X START POSITION
+		MOVE.W	#$80+112-13,BALLY	;player1'S Y START POSITION
+		MOVE.W 	#1,BALLD			;puts 01 in to BALLD
+		RTS
+
+;------------------------------
+;	MAIN GAME LOOP
+;------------------------------
+MAIN:		WAITVBI					;WAITS FOR THE START OF THE NEXT FRAME
+;ADD SPRITES
+		LEA.L	SPRITETEMP,A1			;POINT TO TEMPORARY MEMORY TO BUILD SPRITE LIST
+		MOVE.W	#1,D7
+;player 1
+		MOVE.W	player1Y,(A1)+			;Y POSITION ($80 IS TOP OF SCREEN)
+		MOVE.W	#S_1X3,D0			;SIZE 2X4 CHARACTERS
+		ADD.W	D7,D0				;ADD CURRENT SPRITE NUMBER
+		MOVE.W	D0,(A1)+			;WRITE TO SPRITE TABLE
+		MOVE.W	#S_PAL2+$1000/32,D0		;PALETTE NUMBER+GRAPHIC VRAM LOCATION/32
+		MOVE.W	D0,(A1)+			;WRITE TO SPRITE TABLE
+		MOVE.W	player1X,(A1)+			;X POSITION ($80 IS LEFT OF SCREEN)
+
+		ADDQ.W	#1,D7
+;player 2							
+		MOVE.W	player2Y,(A1)+			;Y POSITION ($80 IS TOP OF SCREEN)
+		MOVE.W	#S_1X3,D0			;SIZE OF CHARACTERS
+		ADD.W	D7,D0				;ADD CURRENT SPRITE NUMBER
+		MOVE.W	D0,(A1)+			;WRITE TO SPRITE TABLE
+		MOVE.W	#S_PAL2+$1000/32,D0		;PALETTE NUMBER+GRAPHIC VRAM LOCATION/32
+		MOVE.W	D0,(A1)+			;WRITE TO SPRITE TABLE
+		MOVE.W	player2X,(A1)+			;X POSITION ($80 IS LEFT OF SCREEN)
+
+		ADDQ.W	#1,D7				;MOVE ON TO NEXT SPRITE NUMBER
+
+							;A1=POINTER TO NEXT SPRITE ENTRY
+							;D7=NEXT SPRITE NUMBER
+
+;ball							
+		MOVE.W	BALLY,(A1)+			;Y POSITION ($80 IS TOP OF SCREEN)
+		MOVE.W	#S_1X1,D0			;SIZE OF CHARACTERS
+		ADD.W	D7,D0				;ADD CURRENT SPRITE NUMBER
+		MOVE.W	D0,(A1)+			;WRITE TO SPRITE TABLE
+		MOVE.W	#S_PAL2+$1100/32,D0		;PALETTE NUMBER + VRAM LOCATION/32 in to D0
+		MOVE.W	D0,(A1)+			;WRITE TO SPRITE TABLE 
+		MOVE.W	BALLX,(A1)+			;X POSITION ($80 IS LEFT OF SCREEN)
+
+		ADDQ.W	#1,D7				;MOVE ON TO NEXT SPRITE NUMBER
+
+							;A1=POINTER TO NEXT SPRITE ENTRY
+							;D7=NEXT SPRITE NUMBER
+;END
+		MOVE.L	#$10000,(A1)+			;TERMINATE SPRITE LIST
+		MOVE.L	#1,(A1)+			;	"  "
+
+;BALL_CODE:
+		MOVE.W	BALLX,D3			;put BALLX in to D3
+		MOVE.W	BALLY,D4			;put BALLY in to D4
+		MOVE.W	BALLD,D5			;put BALLD in to D5
+		cmp.w	#0,d5
+		beq	@skip
+		add.w	#2, BALLX
+		ADD.W	#2, PLAY1X			;SCROLL PLAYFIELD RIGHT 
+@skip:
+		sub.w	#1, BALLX
+		SUB.W	#1, PLAY1X			;SCROLL PLAYFIELD left 
+		
+
+		
+
+
+;		SWAP	D5				;ADDS PRECISION
+;		ASR.L	#6,D5				;REMOVE A BIT OF PRECISION - X MOMENTUM
+;		JSR	GETRANDOM			;RETURNS A RANDOM NUMBER FROM 0-255 IN REGISTER D0
+;		MOVE.L	D0,D6
+;		EXT.W	D6				;NUMBER FROM -126 TO +127
+;		SWAP	D6				;ADDS PRECISION
+;		ASR.L	#6,D6				;REMOVE A BIT OF PRECISION
+;		ADD.L	#-$30000,D6			;Y MOMENTUM 
+
+;MOVE player1
+		BTST	#J_DOWN,JOYPAD0
+		BNE.S	@MOVE1
+		ADD.W	#1,player1Y	
+@MOVE1:
+		BTST	#J_UP,JOYPAD0
+		BNE.S	@MOVE2
+		SUB.W	#1,player1Y	
+;MOVE player2
+@MOVE2:
+		BTST	#J_BUT_A,JOYPAD0
+		BNE.S	@MOVE3
+		SUB.W	#1,player2Y	
+		
+@MOVE3:
+		BTST	#J_BUT_B,JOYPAD0
+		BNE.S	@MOVE4
+		ADD.W	#1,player2Y
+		
+@MOVE4:
+		BTST	#J_LEFT,JOYPAD0
+		BNE.S	@MOVE5
+		MOVE.W	#1,BALLD
+		
+@MOVE5:
+		BTST	#J_RIGHT,JOYPAD0
+		BNE.S	@NORING
+		MOVE.W	#0,BALLD
+
+@NORING:
+
+		BRA	MAIN				;LOOP BACK TO WAIT FOR NEXT FRAME
+		
+;----------------------------------------------------------
+;		USER VBI ROUTINES
+;		- PUT TIME CRITICAL CODE THAT MUST CALLED DURING THE VERTICAL BLANK HERE
+;----------------------------------------------------------
+USERVBI:	LEA.L	VDP_DATA,A1
+		LEA.L	VDP_CONTROL,A2
+;SET HORIZONTAL OFFSETS
+		MOVE.L	#$7C000003,(A2)
+		MOVE.L	PLAYX,(A1)		;THIS TELLS THE VDP (VISUAL DISPLAY PROCESSOR) WHAT X POSITION THE PLAYFIELDS SHOULD BE AT
+
+;SET VERTICAL OFFSETS
+		MOVE.L	#$40000010,(A2)		;THIS TELLS THE VDP WHAT Y POSITION THE PLAYFIELDS SHOULD BE AT
+		MOVE.L	PLAYY,(A1)
+
+;COPY SPRITE TABLE TO VRAM
+		JSR	SPRITEDUMP
+;READ JOYPAD
+		BSR	READJOY			;READ THE JOYPAD
+
+		RTS
+
+;----------------------------------------------------------
+;		PUT DATA BELOW HERE
+;----------------------------------------------------------
+
+;----------------------------------------------------------
+CHARGFX:
+		DC.W	$0003,$0004,$0001,$0001
+		DC.W	$0801,$0801,$0804,$0803
+		DC.W	$0002,$0002,$0003,$0004
+		DC.W	$0804,$0803,$0802,$0802
+		DC.W	$1002,$1002,$1003,$1004
+		DC.W	$1804,$1803,$1802,$1802
+		DC.W	$1003,$1004,$1001,$1001
+		DC.W	$1801,$1801,$1804,$1803
+
+;----------------------------------------------------------
+;		MAP GRAPHICS
+;----------------------------------------------------------
+MAPGFX:		
+		DC.B	$ff,$ff,$6f,$ff		;01	FULL CHARACTER USING COLOUR 6
+		DC.B	$ff,$ff,$ff,$f6
+		DC.B	$ff,$f6,$ff,$ff
+		DC.B	$ff,$ff,$6f,$ff
+		DC.B	$ff,$6f,$ff,$6f
+		DC.B	$ff,$ff,$ff,$ff
+		DC.B	$6f,$ff,$ff,$f6
+		DC.B	$ff,$6f,$f6,$ff
+
+		DC.B	$ff,$f7,$ff,$ff		;02	FULL CHARACTER USING COLOUR 7
+		DC.B	$7f,$ff,$ff,$7f
+		DC.B	$ff,$7f,$ff,$ff
+		DC.B	$ff,$ff,$7f,$ff
+		DC.B	$f7,$ff,$ff,$ff
+		DC.B	$ff,$f7,$ff,$ff
+		DC.B	$f7,$ff,$f7,$ff
+		DC.B	$ff,$ff,$ff,$f7
+
+		DC.B	$FF,$ff,$f6,$ff		;03	HALF OF THE DIAGONAL LINE
+		DC.B	$7f,$FF,$ff,$6f
+		DC.B	$ff,$f7,$FF,$ff
+		DC.B	$ff,$7f,$ff,$FF
+		DC.B	$ff,$ff,$ff,$f7
+		DC.B	$f7,$7f,$7f,$ff
+		DC.B	$ff,$ff,$ff,$ff
+		DC.B	$ff,$f7,$ff,$7f
+
+		DC.B	$ff,$f6,$6f,$ff		;04	OTHER HALF OF THE DIAGONAL LINE
+		DC.B	$ff,$ff,$ff,$f6
+		DC.B	$ff,$6f,$ff,$ff
+		DC.B	$f6,$ff,$f6,$ff
+		DC.B	$FF,$6f,$ff,$6f
+		DC.B	$ff,$FF,$ff,$ff
+		DC.B	$7f,$f7,$FF,$6f
+		DC.B	$f7,$7f,$ff,$FF
+
+;----------------------------------------------------------
+;		SPRITE GRAPHICS
+;		2 X 4 CHARACTERS ARRANGED AS FOLLOWS -
+;
+;		1 3
+;		2 4
+;		
+;		
+;----------------------------------------------------------
+SPRITEGFX:	
+		DC.B	$44,$44,$44,$44		;2
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+				
+		DC.B	$44,$44,$44,$44		;2
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		
+		DC.B	$44,$44,$44,$44		;2
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+;----------------------------------------------------------
+BALLGFX:
+		DC.B	$44,$44,$44,$44		;2
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+		DC.B	$44,$44,$44,$44
+;----------------------------------------------------------
+;		USER PALETTES
+;----------------------------------------------------------
+PALETTE1:	DC.W	$0000,$0044,$0066,$0088
+		DC.W	$00AA,$00EE,$0888,$FF00
+		DC.W	$0EEE,$0CCC,$0AAA,$0888
+		DC.W	$0666,$0444,$0222,$0000
+
+PALETTE2:	DC.W	$0000,$0000,$0F80,$08CE	
+		DC.W	$0EEE,$00E0,$000E,$00EE
+		DC.W	$0088,$0044,$0066,$0AAA
+		DC.W	$0666,$0444,$0222,$0888
+
